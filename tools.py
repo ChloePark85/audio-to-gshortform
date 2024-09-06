@@ -8,7 +8,7 @@ import requests
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
-# from moviepy.editor import *
+import os
 
 
 client = OpenAI()
@@ -180,39 +180,78 @@ def summarize_text(text: str, max_length: int = 10) -> str:
 def add_header_to_image(image: Image.Image, header_text: str) -> Image.Image:
     """
     이미지의 상단 검은색 부분에 헤더 텍스트를 추가합니다.
-    텍스트는 흰색으로, 중앙정렬하여 2줄로 표시됩니다.
+    텍스트는 흰색으로, 중앙정렬하여 2줄로 표시되며, 더 두껍고 강조되어 있습니다.양쪽에 10px 마진이 있습니다.
     """
     draw = ImageDraw.Draw(image)
     width, height = image.size
+
+    # 마진 설정
+    margin = 10
     
     # 폰트 설정 (폰트 파일 경로를 적절히 수정해주세요)
-    font_size = int(width / 25) * 3 * 3  # 이미지 너비의 1/25의 9배로 폰트 크기 설정
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/AppleSDGothicNeo-Bold.otf", font_size)
-    except IOError:
+    font_size = int(width / 18)  
+
+    font_paths = [
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",  # Ubuntu
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",  # macOS
+        "C:/Windows/Fonts/malgun.ttf",  # Windows
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",  # 다른 Linux 배포판
+    ]
+    
+    font = None
+    for font_path in font_paths:
+        if os.path.exists(font_path):
+            try:
+                font = ImageFont.truetype(font_path, font_size)
+                break
+            except IOError:
+                continue
+    
+    if font is None:
+        print("Warning: 한글 폰트를 찾을 수 없습니다. 기본 폰트를 사용합니다.")
         font = ImageFont.load_default()
 
-    # 텍스트를 2줄로 나누기
-    max_width = width  # 전체 너비 사용
-    lines = textwrap.wrap(header_text, width=int(max_width / (font_size / 2)))  # 폰트 크기를 고려한 줄 바꿈
+    max_width = width - 2 * margin
+
+    # 텍스트 줄바꿈 로직 개선
+    lines = []
+    for line in textwrap.wrap(header_text, width=int(max_width / (font_size / 2))):
+        if font.getbbox(line)[2] <= max_width:
+            lines.append(line)
+        else:
+            # 라인이 너무 길면 더 작은 부분으로 나눕니다
+            words = line.split()
+            new_line = ""
+            for word in words:
+                test_line = new_line + " " + word if new_line else word
+                if font.getbbox(test_line)[2] <= max_width:
+                    new_line = test_line
+                else:
+                    if new_line:
+                        lines.append(new_line)
+                    new_line = word
+            if new_line:
+                lines.append(new_line)
+        if len(lines) == 2:
+            break
+
     if len(lines) > 2:
-        lines = lines[:2]  # 최대 2줄로 제한
+        lines = lines[:2]
     
-    # 텍스트 전체 높이 계산
-    _, _, _, line_height = font.getbbox('hg')  # 행 높이
+    bbox = font.getbbox('hg')
+    line_height = bbox[3] - bbox[1]
     text_height = line_height * len(lines)
     
-    # 시작 y 좌표 계산 (상단 1/6 지점에서 30px 위로)
-    y = (height / 6 - text_height / 2) - 60  # 더 위로 이동
+    # 시작 y 좌표 계산
+    y = (height / 6 - text_height / 2) - 70
     
     # 각 줄 그리기
     for line in lines:
-        # 각 줄의 너비 계산
         bbox = font.getbbox(line)
         line_width = bbox[2] - bbox[0]
         
-        # x 좌표 계산 (중앙 정렬)
-        x = (width - line_width) / 2
+        # x 좌표 계산 (중앙 정렬, 마진 강제 적용)
+        x = max(margin, (width - line_width) / 2)
         
         # 외곽선 그리기
         outline_color = "black"
@@ -229,10 +268,10 @@ def add_header_to_image(image: Image.Image, header_text: str) -> Image.Image:
         # 메인 텍스트 그리기
         draw.text((x, y), line, font=font, fill="white")
         
-        # 다음 줄로 이동
         y += line_height
     
     return image
+
 
 # Tool 객체로 래핑
 extract_highlights_tool = Tool(
