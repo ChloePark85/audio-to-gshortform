@@ -1,8 +1,14 @@
 import streamlit as st
-from crewai import Agent, Task, Crew
-from tasks import get_highlight_extraction_task, execute_task_with_error_handling
-from tools import extract_highlights, create_highlight_clips, generate_subtitle, summarize_text, generate_image, add_background, add_header_to_image
-from agents import highlight_agent
+from crewai import Crew
+from agents import highlight_agent, subtitle_agent, summarization_agent, image_generation_agent
+from tasks import (
+    get_highlight_extraction_task, 
+    get_subtitle_generation_task, 
+    get_text_summarization_task, 
+    get_image_generation_task, 
+    get_image_header_addition_task
+)
+from tools import extract_highlights, create_highlight_clips, add_background, generate_subtitle, summarize_text, generate_image, add_header_to_image
 import tempfile
 import os
 from PIL import Image
@@ -10,16 +16,16 @@ from PIL import Image
 from dotenv import load_dotenv
 load_dotenv()
 
-# Streamlit 앱 설정
+# Streamlit app setup
 st.set_page_config(page_title="그래픽 숏폼 generator", page_icon="🎵")
 st.title("그래픽 숏폼 생성기")
 
-# 파일 업로더 위젯
+# File uploader widget
 uploaded_file = st.file_uploader("오디오 파일을 선택하세요", type=['mp3', 'wav'])
 tmp_file_path = None
 
 if uploaded_file is not None:
-    # 임시 파일로 저장
+    # Save to temporary file
     with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
         tmp_file.write(uploaded_file.getvalue())
         tmp_file_path = tmp_file.name
@@ -27,60 +33,54 @@ if uploaded_file is not None:
     st.success(f"파일이 성공적으로 업로드되었습니다: {uploaded_file.name}")
     st.audio(tmp_file_path)
 
-    # 하이라이트 추출
+    # Extract highlights
     highlight_times = extract_highlights(tmp_file_path)
 
     if not highlight_times:
         st.error("하이라이트를 추출하지 못했습니다.")
     else:
-        # 하이라이트 클립 생성
+        # Create highlight clips
         highlight_clips = create_highlight_clips(tmp_file_path, highlight_times)
         
         for i, clip in enumerate(highlight_clips):
             start, end = highlight_times[i]
             st.write(f"하이라이트 {i+1}: {start:.2f}초 - {end:.2f}초 (길이: {(end-start):.2f}초)")
             
-            # 임시 파일로 저장하고 재생
+            # Save and play temporary file
             clip_path = f"temp_clip_{i}.mp3"
             clip.export(clip_path, format="mp3")
             st.audio(clip_path)
             
-            # 자막 생성
+            # Generate subtitle
             subtitle = generate_subtitle(clip)
             st.write("자막:")
             st.write(subtitle)
             
-            # 자막 요약
+            # Summarize subtitle
             summary = summarize_text(subtitle)
             st.write("요약:")
             st.write(summary)
             
-            # 이미지 생성
-            image_prompt = f"""Create a stylish illustration featuring an attractive character based on the following scene: {subtitle}. 
-Key points:
-- The character should be visually appealing and well-designed
-- Use a sophisticated illustration style
-- Do not include any speech bubbles or text in the image
-- The image should be suitable for a short-form video thumbnail
-- Focus on creating a visually striking and engaging scene
-"""
-            image = generate_image(image_prompt)
+            # Generate image
+            image = generate_image(subtitle)
+            if isinstance(image, Image.Image):
+                # Add black background to image (2:3 ratio)
+                image_with_background = add_background(image)
 
-            # 이미지에 검은색 배경 추가 (2:3 비율로)
-            image_with_background = add_background(image)
+                # Add header to image
+                image_with_header = add_header_to_image(image_with_background, summary)
 
-            # 이미지에 헤더 추가
-            image_with_header = add_header_to_image(image_with_background, summary)
+                # Display image
+                st.image(image_with_header, caption=f"하이라이트 {i+1} 이미지")
+            else:
+                st.error("이미지 생성에 실패했습니다.")
 
-            # 이미지 표시
-            st.image(image_with_header, caption=f"하이라이트 {i+1} 이미지")
-
-            # 임시 파일 삭제
+            # Delete temporary file
             os.remove(clip_path)
 
             st.write("---")
 
-    # 임시 파일 삭제
+    # Delete temporary file
     if tmp_file_path:
         os.unlink(tmp_file_path)
         tmp_file_path = None

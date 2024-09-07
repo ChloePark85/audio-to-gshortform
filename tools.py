@@ -104,7 +104,7 @@ def create_highlight_clips(audio_path: str, highlight_times: dict) -> list:
     
     
 
-def generate_subtitle(audio_segment):
+def generate_subtitle(audio_segment: AudioSegment) -> str:
     """
     오디오 세그먼트에 대한 자막을 생성합니다.
 
@@ -125,6 +125,7 @@ def generate_subtitle(audio_segment):
                 response_format="text"
             )
     
+    os.unlink(temp_audio_file.name)
     return transcription
 
 def generate_image(prompt: str) -> Image.Image:
