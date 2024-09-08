@@ -35,13 +35,15 @@ if uploaded_file is not None:
     st.audio(tmp_file_path)
 
     # Extract highlights
-    highlight_times = extract_highlights(tmp_file_path)
+    with st.spinner('하이라이트 추출 중...'):
+        highlight_times = extract_highlights(tmp_file_path)
 
     if not highlight_times:
         st.error("하이라이트를 추출하지 못했습니다.")
     else:
         # Create highlight clips
-        highlight_clips = create_highlight_clips(tmp_file_path, highlight_times)
+        with st.spinner('하이라이트 클립 생성 중...'):
+            highlight_clips = create_highlight_clips(tmp_file_path, highlight_times)
         
         for i, clip in enumerate(highlight_clips):
             start, end = highlight_times[i]
@@ -53,55 +55,20 @@ if uploaded_file is not None:
             st.audio(clip_path)
             
             # Generate subtitle
-            subtitle = generate_subtitle(clip)
+            with st.spinner('자막 생성 중...'):
+                subtitle = generate_subtitle(clip)
             st.write("자막:")
             st.write(subtitle)
             
             # Summarize subtitle
-            summary = summarize_text(subtitle)
+            with st.spinner('요약 생성 중...'):
+                summary = summarize_text(subtitle)
             st.write("요약:")
             st.write(summary)
             
             # Generate image
-            image = generate_image(summary)
-            if image:
-                # Add black background to image (2:3 ratio)
-                image_with_background = add_background(image)
-
-                # Add header to image
-                image_with_header = add_header_to_image(image_with_background, summary)
-
-                # Display image
-                st.image(image_with_header, caption=f"하이라이트 {i+1} 이미지")
-            else:
-                st.error("이미지 생성에 실패했습니다.")
-
-            # Delete temporary file
-            os.remove(clip_path)
-
-            st.write("---")
-
-        for i, clip in enumerate(highlight_clips):
-            start, end = highlight_times[i]
-            st.write(f"하이라이트 {i+1}: {start:.2f}초 - {end:.2f}초 (길이: {(end-start):.2f}초)")
-            
-            # Save and play temporary file
-            clip_path = f"temp_clip_{i}.mp3"
-            clip.export(clip_path, format="mp3")
-            st.audio(clip_path)
-            
-            # Generate subtitle
-            subtitle = generate_subtitle(clip)
-            st.write("자막:")
-            st.write(subtitle)
-            
-            # Summarize subtitle
-            summary = summarize_text(subtitle)
-            st.write("요약:")
-            st.write(summary)
-            
-            # Generate image
-            image = generate_image(subtitle)
+            with st.spinner('이미지 생성 중...'):
+                image = generate_image(subtitle)
             if isinstance(image, Image.Image):
                 # Add black background to image (2:3 ratio)
                 image_with_background = add_background(image)
@@ -113,15 +80,16 @@ if uploaded_file is not None:
                 st.image(image_with_header, caption=f"하이라이트 {i+1} 이미지")
 
                 # Create video
-                image_path = f"temp_image_{i}.png"
-                image_with_header.save(image_path)
-                
-                video = CompositeVideoClip([ImageClip(image_path).set_duration(end-start)])
-                audio = AudioFileClip(clip_path)
-                final_clip = video.set_audio(audio)
-                
-                video_path = f"temp_video_{i}.mp4"
-                final_clip.write_videofile(video_path, fps=24)
+                with st.spinner('비디오 생성 중...'):
+                    image_path = f"temp_image_{i}.png"
+                    image_with_header.save(image_path)
+                    
+                    video = ImageClip(image_path).set_duration(end-start)
+                    audio = AudioFileClip(clip_path)
+                    final_clip = CompositeVideoClip([video]).set_audio(audio)
+                    
+                    video_path = f"temp_video_{i}.mp4"
+                    final_clip.write_videofile(video_path, fps=24)
 
                 # Display video
                 st.video(video_path)
@@ -141,3 +109,5 @@ if uploaded_file is not None:
     if tmp_file_path:
         os.unlink(tmp_file_path)
         tmp_file_path = None
+
+st.write("모든 작업이 완료되었습니다.")

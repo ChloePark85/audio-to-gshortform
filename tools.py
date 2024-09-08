@@ -133,7 +133,14 @@ def generate_image(prompt: str) -> Image.Image:
     DALL-E를 사용하여 주어진 프롬프트에 기반한 이미지를 생성합니다.
     """
     # 프롬프트를 더 일반적이고 중립적으로 수정
-    safe_prompt = f"Create a simple, stylized illustration inspired by the following concept: {prompt}. Use abstract shapes and neutral colors."
+    safe_prompt = f"""Create a stylish illustration featuring an attractive character based on the following scene: {prompt}. 
+Key points:
+- The character should be visually appealing and well-designed
+- Use a sophisticated illustration style
+- Do not include any speech bubbles or text in the image
+- The image should be suitable for a short-form video thumbnail
+- Focus on creating a visually striking and engaging scene
+"""
     
     response = client.images.generate(
             model="dall-e-3",
