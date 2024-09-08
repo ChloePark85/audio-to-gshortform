@@ -131,25 +131,22 @@ def generate_subtitle(audio_segment: AudioSegment) -> str:
 def generate_image(prompt: str) -> Image.Image:
     """
     DALL-E를 사용하여 주어진 프롬프트에 기반한 이미지를 생성합니다.
-
-    Args:
-        prompt (str): 이미지 생성을 위한 프롬프트
-
-    Returns:
-        Image.Image: 생성된 이미지
     """
+    # 프롬프트를 더 일반적이고 중립적으로 수정
+    safe_prompt = f"Create a simple, stylized illustration inspired by the following concept: {prompt}. Use abstract shapes and neutral colors."
+    
     response = client.images.generate(
-        model="dall-e-3",
-        prompt=prompt,
-        size="1024x1024",  # 2:3 비율에 가장 가까운 지원되는 크기
-        quality="standard",
-        n=1,
-    )
+            model="dall-e-3",
+            prompt=safe_prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
 
     image_url = response.data[0].url
     image_response = requests.get(image_url)
     image = Image.open(BytesIO(image_response.content))
-    
+        
     return image
 
 def add_background(image, target_ratio=2/3):

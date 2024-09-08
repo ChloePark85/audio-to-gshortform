@@ -12,6 +12,7 @@ from tools import extract_highlights, create_highlight_clips, add_background, ge
 import tempfile
 import os
 from PIL import Image
+from moviepy.editor import ImageClip, AudioFileClip, CompositeVideoClip
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -62,8 +63,8 @@ if uploaded_file is not None:
             st.write(summary)
             
             # Generate image
-            image = generate_image(subtitle)
-            if isinstance(image, Image.Image):
+            image = generate_image(summary)
+            if image:
                 # Add black background to image (2:3 ratio)
                 image_with_background = add_background(image)
 
@@ -76,6 +77,62 @@ if uploaded_file is not None:
                 st.error("이미지 생성에 실패했습니다.")
 
             # Delete temporary file
+            os.remove(clip_path)
+
+            st.write("---")
+
+        for i, clip in enumerate(highlight_clips):
+            start, end = highlight_times[i]
+            st.write(f"하이라이트 {i+1}: {start:.2f}초 - {end:.2f}초 (길이: {(end-start):.2f}초)")
+            
+            # Save and play temporary file
+            clip_path = f"temp_clip_{i}.mp3"
+            clip.export(clip_path, format="mp3")
+            st.audio(clip_path)
+            
+            # Generate subtitle
+            subtitle = generate_subtitle(clip)
+            st.write("자막:")
+            st.write(subtitle)
+            
+            # Summarize subtitle
+            summary = summarize_text(subtitle)
+            st.write("요약:")
+            st.write(summary)
+            
+            # Generate image
+            image = generate_image(subtitle)
+            if isinstance(image, Image.Image):
+                # Add black background to image (2:3 ratio)
+                image_with_background = add_background(image)
+
+                # Add header to image
+                image_with_header = add_header_to_image(image_with_background, summary)
+
+                # Display image
+                st.image(image_with_header, caption=f"하이라이트 {i+1} 이미지")
+
+                # Create video
+                image_path = f"temp_image_{i}.png"
+                image_with_header.save(image_path)
+                
+                video = CompositeVideoClip([ImageClip(image_path).set_duration(end-start)])
+                audio = AudioFileClip(clip_path)
+                final_clip = video.set_audio(audio)
+                
+                video_path = f"temp_video_{i}.mp4"
+                final_clip.write_videofile(video_path, fps=24)
+
+                # Display video
+                st.video(video_path)
+
+                # Delete temporary files
+                os.remove(image_path)
+                os.remove(video_path)
+            else:
+                st.error("이미지 생성에 실패했습니다.")
+
+            # Delete temporary audio file
             os.remove(clip_path)
 
             st.write("---")

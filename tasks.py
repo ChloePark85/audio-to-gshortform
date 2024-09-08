@@ -51,4 +51,3 @@ def get_image_header_addition_task(image, header_text: str) -> Task:
         agent=image_generation_agent,
         expected_output="헤더가 추가된 이미지 객체"
     )
-
