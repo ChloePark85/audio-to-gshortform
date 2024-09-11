@@ -1,3 +1,4 @@
+import io
 import streamlit as st
 from crewai import Crew
 from agents import highlight_agent, subtitle_agent, summarization_agent, image_generation_agent
@@ -93,6 +94,14 @@ if uploaded_file is not None:
 
                 # Display video
                 st.video(video_path)
+
+                with open(video_path, "rb") as file:
+                    btn = st.download_button(
+                        label=f"하이라이트 {i+1} 비디오 다운로드",
+                        data=file,
+                        file_name=f"highlight_{i+1}.mp4",
+                        mime="video/mp4"
+                    )
 
                 # Delete temporary files
                 os.remove(image_path)
