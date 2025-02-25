@@ -1,0 +1,24 @@
+# 환경 설정
+.env
+
+# 가상환경
+gshortformenv/
+gshortformvenv/
+venv/
+env/
+__pycache__/
+
+# 미디어 파일
+*.mp3
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.wav
+
+# 이미지 파일
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
