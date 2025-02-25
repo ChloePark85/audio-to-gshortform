@@ -475,115 +475,88 @@ def transcribe_audio(audio_path: str) -> list:
     except Exception as e:
         raise Exception(f"음성 인식 중 오류 발생: {str(e)}\n상세: {transcription if 'transcription' in locals() else 'No response'}")
 
-def extract_interesting_part(transcript: list) -> dict:
+def extract_interesting_part(segments):
     """
-    전체 스크립트에서 가장 흥미로운 1분을 선택합니다.
+    2분(120초) 길이의 흥미로운 부분을 추출
     """
-    try:
-        transcript_text = "\n".join([f"{seg['start']:.2f}s - {seg['end']:.2f}s: {seg['text']}" 
-                                   for seg in transcript])
+    if not segments:
+        raise ValueError("세그먼트가 비어있습니다.")
+    
+    # 연속된 120초 구간을 찾기
+    best_start = 0
+    target_duration = 120  # 2분
+    
+    for i, segment in enumerate(segments):
+        current_start = segment['start']
+        current_end = current_start
+        current_segments = []
         
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "당신은 흥미로운 콘텐츠를 선별하는 전문가입니다. JSON 형식으로만 응답해주세요."},
-                {"role": "user", "content": f"""
-                다음 스크립트에서 가장 흥미롭고 인상적인 1분 분량을 선택해주세요.
-                시작 시간과 끝 시간의 차이가 약 60초가 되도록 선택하세요.
-                선택한 부분은 하나의 완결된 이야기나 주제를 담고 있어야 합니다.
-                
-                스크립트:
-                {transcript_text}
-                
-                다음 JSON 형식으로만 응답해주세요:
-                {{
-                    "start": 시작시간(초),
-                    "end": 끝시간(초),
-                    "title": "이 부분의 제목",
-                    "reason": "이 부분을 선택한 이유"
-                }}
-                """}
-            ]
-        )
+        # 120초 구간에 포함되는 세그먼트들 수집
+        for next_segment in segments[i:]:
+            if next_segment['end'] - current_start <= target_duration:
+                current_segments.append(next_segment)
+                current_end = next_segment['end']
+            else:
+                break
         
-        content = response.choices[0].message.content.strip()
-        json_str = content[content.find("{"):content.rfind("}")+1]
-        result = json.loads(json_str)
-        
-        selected_segments = [
-            segment for segment in transcript 
-            if segment['start'] >= float(result['start']) and segment['end'] <= float(result['end'])
-        ]
-        
-        return {
-            'segments': selected_segments,
-            'title': result['title'],
-            'reason': result['reason'],
-            'start': float(result['start']),
-            'end': float(result['end'])
-        }
-        
-    except Exception as e:
-        raise Exception(f"흥미로운 부분 선택 중 오류 발생: {str(e)}")
+        if current_segments:
+            best_start = i
+            break
+    
+    selected_segments = segments[best_start:best_start + len(current_segments)]
+    
+    return {
+        'title': "2분 하이라이트",
+        'reason': "핵심 내용이 포함된 2분 구간입니다.",
+        'start': selected_segments[0]['start'],
+        'end': selected_segments[-1]['end'],
+        'segments': selected_segments
+    }
 
-def extract_shorts_segments(interesting_part: dict) -> list:
+def extract_shorts_segments(interesting_part):
     """
-    흥미로운 부분에서 숏츠에 적합한 연결된 세그먼트들을 선택합니다.
+    문장 단위로 10개의 세그먼트를 추출
+    각 세그먼트는 정확히 하나의 문장만 포함
+    첫 10초 이후의 문장부터 선택
     """
-    try:
-        segments_text = "\n".join([f"{seg['start']:.2f}s - {seg['end']:.2f}s: {seg['text']}" 
-                                 for seg in interesting_part['segments']])
+    segments = interesting_part['segments']
+    results = []
+    
+    # 10초 이후의 세그먼트부터 시작
+    filtered_segments = [seg for seg in segments if seg['start'] >= 10.0]
+    
+    for segment in filtered_segments:
+        # 세그먼트의 텍스트를 문장 단위로 분리
+        text = segment['text'].strip()
+        sentences = [s.strip() + '.' for s in text.split('.') if s.strip()]
         
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "당신은 숏폼 콘텐츠 전문가입니다. JSON 형식으로만 응답해주세요."},
-                {"role": "user", "content": f"""
-                다음은 1분 길이의 흥미로운 내용입니다. 제목: {interesting_part['title']}
-                이 내용을 10개의 짧은 숏츠 클립으로 나누어주세요.
-                각 클립은 하나의 완결된 문장이나 의미 단위여야 하며, 
-                모든 클립이 이어졌을 때 하나의 스토리가 완성되어야 합니다.
-                
-                스크립트:
-                {segments_text}
-                
-                다음 JSON 형식으로만 응답해주세요:
-                {{
-                    "segments": [
-                        {{
-                            "start": 시작시간(초),
-                            "end": 끝시간(초),
-                            "scene_description": "이 장면의 설명"
-                        }},
-                        ...
-                    ]
-                }}
-                """}
-            ]
-        )
-        
-        content = response.choices[0].message.content.strip()
-        json_str = content[content.find("{"):content.rfind("}")+1]
-        result = json.loads(json_str)
-        
-        selected_segments = []
-        for selection in result['segments']:
-            segments = [
-                segment for segment in interesting_part['segments']
-                if segment['start'] >= float(selection['start']) and segment['end'] <= float(selection['end'])
-            ]
-            if segments:  # 빈 세그먼트 제외
-                selected_segments.append({
-                    'segments': segments,
-                    'scene_description': selection['scene_description'],
-                    'start': float(selection['start']),
-                    'end': float(selection['end'])
-                })
+        for sentence in sentences:
+            # 문장의 길이를 기준으로 시간 비율 계산
+            segment_duration = segment['end'] - segment['start']
+            sentence_ratio = len(sentence) / len(text)
+            sentence_duration = segment_duration * sentence_ratio
             
-        return selected_segments
-        
-    except Exception as e:
-        raise Exception(f"숏츠 세그먼트 선택 중 오류 발생: {str(e)}")
+            sentence_start = segment['start']
+            sentence_end = sentence_start + sentence_duration
+            
+            results.append({
+                'scene_description': sentence,
+                'start': sentence_start,
+                'end': sentence_end,
+                'segments': [{
+                    'text': sentence,
+                    'start': sentence_start,
+                    'end': sentence_end
+                }]
+            })
+    
+    # 균등한 간격으로 10개 선택
+    if len(results) > 10:
+        step = len(results) / 10
+        indices = [int(i * step) for i in range(10)]
+        results = [results[i] for i in indices]
+    
+    return results[:10]  # 최대 10개 반환
 
 def extract_audio_segment(audio_path: str, start: float, end: float) -> str:
     """

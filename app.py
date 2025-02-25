@@ -108,65 +108,67 @@ if 'transcript_segments' in st.session_state:
         
         st.write(f"{time_info}: {text}")
 
-# 음성 인식 결과 표시 후...
-if 'transcript_segments' in st.session_state:
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("흥미로운 부분 선택"):
-            with st.spinner("흥미로운 부분을 분석중..."):
+# 흥미로운 부분 선택 섹션
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("흥미로운 부분 선택"):
+        with st.spinner("흥미로운 부분을 분석중..."):
+            try:
+                result = extract_interesting_part(st.session_state['transcript_segments'])
+                st.session_state['interesting_part'] = result
+            except Exception as e:
+                st.error(f"오류 발생: {str(e)}")
+
+    # 흥미로운 부분 결과를 항상 표시
+    if 'interesting_part' in st.session_state:
+        result = st.session_state['interesting_part']
+        st.subheader(f"📌 {result['title']}")
+        st.info(f"선택 이유: {result['reason']}")
+        st.write(f"전체 구간: {result['start']:.2f}초 ~ {result['end']:.2f}초")
+        
+        # 선택된 세그먼트들 표시
+        with st.expander("전체 스크립트", expanded=True):
+            for segment in result['segments']:
+                st.write(f"{segment['start']:.2f}s - {segment['end']:.2f}s: {segment['text']}")
+        
+        # 오디오 추출 및 재생
+        if 'original_audio_path' in st.session_state:
+            audio_path = extract_audio_segment(
+                st.session_state['original_audio_path'],
+                result['start'],
+                result['end']
+            )
+            st.audio(audio_path)
+
+with col2:
+    if st.button("숏츠에 사용될 부분 선택"):
+        if 'interesting_part' not in st.session_state:
+            st.warning("먼저 '흥미로운 부분 선택'을 실행해주세요.")
+        else:
+            with st.spinner("숏츠용 세그먼트를 분석중..."):
                 try:
-                    result = extract_interesting_part(st.session_state['transcript_segments'])
-                    st.session_state['interesting_part'] = result
+                    results = extract_shorts_segments(st.session_state['interesting_part'])
+                    st.session_state['shorts_segments'] = results
                     
-                    st.subheader(f"📌 {result['title']}")
-                    st.info(f"선택 이유: {result['reason']}")
-                    st.write(f"전체 구간: {result['start']:.2f}초 ~ {result['end']:.2f}초")
+                    st.subheader("🎬 숏츠 시퀀스")
                     
-                    # 선택된 세그먼트들 표시
-                    with st.expander("전체 스크립트", expanded=True):
-                        for segment in result['segments']:
-                            st.write(f"{segment['start']:.2f}s - {segment['end']:.2f}s: {segment['text']}")
-                    
-                    # 오디오 추출 및 재생
-                    audio_path = extract_audio_segment(
-                        st.session_state['original_audio_path'],
-                        result['start'],
-                        result['end']
-                    )
-                    st.audio(audio_path)
-                    
+                    for i, result in enumerate(results, 1):
+                        with st.expander(f"Scene {i}: {result['scene_description']}", expanded=True):
+                            # 세그먼트 내용 표시
+                            for segment in result['segments']:
+                                st.write(f"{segment['start']:.2f}s - {segment['end']:.2f}s: {segment['text']}")
+                                
+                            # 오디오 추출 및 재생
+                            audio_path = extract_audio_segment(
+                                st.session_state['original_audio_path'],
+                                result['start'],
+                                result['end']
+                            )
+                            st.audio(audio_path)
+                
                 except Exception as e:
                     st.error(f"오류 발생: {str(e)}")
-    
-    with col2:
-        if st.button("숏츠에 사용될 부분 선택"):
-            if 'interesting_part' not in st.session_state:
-                st.warning("먼저 '흥미로운 부분 선택'을 실행해주세요.")
-            else:
-                with st.spinner("숏츠용 세그먼트를 분석중..."):
-                    try:
-                        results = extract_shorts_segments(st.session_state['interesting_part'])
-                        st.session_state['shorts_segments'] = results
-                        
-                        st.subheader("🎬 숏츠 시퀀스")
-                        
-                        for i, result in enumerate(results, 1):
-                            with st.expander(f"Scene {i}: {result['scene_description']}", expanded=True):
-                                # 세그먼트 내용 표시
-                                for segment in result['segments']:
-                                    st.write(f"{segment['start']:.2f}s - {segment['end']:.2f}s: {segment['text']}")
-                                
-                                # 오디오 추출 및 재생
-                                audio_path = extract_audio_segment(
-                                    st.session_state['original_audio_path'],
-                                    result['start'],
-                                    result['end']
-                                )
-                                st.audio(audio_path)
-                    
-                    except Exception as e:
-                        st.error(f"오류 발생: {str(e)}")
 
 st.markdown("---")
 
