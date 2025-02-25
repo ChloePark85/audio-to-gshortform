@@ -515,7 +515,7 @@ def extract_interesting_part(segments):
 
 def extract_shorts_segments(interesting_part):
     """
-    문장 단위로 10개의 세그먼트를 추출
+    문장 단위로 정확히 10개의 세그먼트를 추출
     각 세그먼트는 정확히 하나의 문장만 포함
     첫 10초 이후의 문장부터 선택
     """
@@ -550,13 +550,26 @@ def extract_shorts_segments(interesting_part):
                 }]
             })
     
-    # 균등한 간격으로 10개 선택
-    if len(results) > 10:
-        step = len(results) / 10
-        indices = [int(i * step) for i in range(10)]
-        results = [results[i] for i in indices]
+    # 결과가 10개보다 적으면 마지막 세그먼트를 복제하여 채움
+    while len(results) < 10:
+        if results:  # 결과가 하나라도 있는 경우
+            results.append(results[-1].copy())
+        else:  # 결과가 하나도 없는 경우
+            # 기본 세그먼트 생성
+            default_segment = {
+                'scene_description': "기본 세그먼트",
+                'start': 0.0,
+                'end': 1.0,
+                'segments': [{
+                    'text': "기본 세그먼트",
+                    'start': 0.0,
+                    'end': 1.0
+                }]
+            }
+            results.append(default_segment)
     
-    return results[:10]  # 최대 10개 반환
+    # 정확히 10개의 세그먼트 반환
+    return results[:10]
 
 def extract_audio_segment(audio_path: str, start: float, end: float) -> str:
     """

@@ -37,9 +37,12 @@ def combine_all_videos(video_paths):
 st.set_page_config(page_title="이미지 투 비디오 생성기", page_icon="🎥")
 st.title("스크립트 분석 및 숏폼 생성기")
 
-# 세션 상태 초기화
+# 세션 상태 초기화 - 항상 10개로 고정
 if 'uploaded_files' not in st.session_state:
-    st.session_state.uploaded_files = {'images': [None] * 5, 'audios': [None] * 5}
+    st.session_state.uploaded_files = {
+        'images': [None] * 10,
+        'audios': [None] * 10
+    }
 
 # 효과 리스트
 effects = [
@@ -150,30 +153,55 @@ with col2:
                 try:
                     results = extract_shorts_segments(st.session_state['interesting_part'])
                     st.session_state['shorts_segments'] = results
-                    
-                    st.subheader("🎬 숏츠 시퀀스")
-                    
-                    for i, result in enumerate(results, 1):
-                        with st.expander(f"Scene {i}: {result['scene_description']}", expanded=True):
-                            # 세그먼트 내용 표시
-                            for segment in result['segments']:
-                                st.write(f"{segment['start']:.2f}s - {segment['end']:.2f}s: {segment['text']}")
-                                
-                            # 오디오 추출 및 재생
-                            audio_path = extract_audio_segment(
-                                st.session_state['original_audio_path'],
-                                result['start'],
-                                result['end']
-                            )
-                            st.audio(audio_path)
-                
                 except Exception as e:
                     st.error(f"오류 발생: {str(e)}")
 
+    # 숏츠 시퀀스 결과를 항상 표시
+    if 'shorts_segments' in st.session_state:
+        st.subheader("🎬 숏츠 시퀀스")
+        
+        for i, result in enumerate(st.session_state['shorts_segments'], 1):
+            with st.expander(f"Scene {i}: {result['scene_description']}", expanded=True):
+                # 세그먼트 내용 표시
+                for segment in result['segments']:
+                    st.write(f"{segment['start']:.2f}s - {segment['end']:.2f}s: {segment['text']}")
+                
+                # 오디오 추출 및 재생
+                if 'original_audio_path' in st.session_state:
+                    audio_path = extract_audio_segment(
+                        st.session_state['original_audio_path'],
+                        result['start'],
+                        result['end']
+                    )
+                    st.audio(audio_path)
+        
+        # 적용 버튼 추가
+        if st.button("숏츠 시퀀스 적용"):
+            # 결과가 10개 미만인 경우를 처리
+            num_results = len(st.session_state['shorts_segments'])
+            if num_results < 10:
+                st.warning(f"추출된 세그먼트가 {num_results}개입니다. 나머지 섹션은 비워둡니다.")
+            
+            # 실제 결과 개수만큼만 반복
+            for i in range(min(num_results, 10)):
+                # 오디오 세그먼트 추출 및 저장
+                audio_segment = extract_audio_segment(
+                    st.session_state['original_audio_path'],
+                    st.session_state['shorts_segments'][i]['start'],
+                    st.session_state['shorts_segments'][i]['end']
+                )
+                st.session_state.uploaded_files['audios'][i] = audio_segment
+            
+            # 나머지 섹션은 None으로 초기화
+            for i in range(num_results, 10):
+                st.session_state.uploaded_files['audios'][i] = None
+            
+            st.success(f"{num_results}개의 숏츠 시퀀스가 적용되었습니다!")
+
 st.markdown("---")
 
-# 5개의 섹션 생성
-for i in range(5):
+# 10개의 섹션 생성 (5개에서 10개로 변경)
+for i in range(10):
     st.subheader(f"{i+1}번 섹션")
     col1, col2 = st.columns(2)
     
@@ -188,14 +216,23 @@ for i in range(5):
             st.session_state.uploaded_files['images'][i] = temp_image.name
             
     with col2:
-        # 오디오 업로드
-        uploaded_audio = st.file_uploader(f"{i+1}번 오디오", type=['mp3', 'wav'], key=f"audio_{i}")
-        if uploaded_audio:
-            st.audio(uploaded_audio)
-            # 오디오 임시 저장
-            temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-            temp_audio.write(uploaded_audio.getvalue())
-            st.session_state.uploaded_files['audios'][i] = temp_audio.name
+        # 오디오 업로드 또는 표시 (텍스트 추가)
+        if st.session_state.uploaded_files['audios'][i] is not None:
+            # 숏츠 시퀀스에서 해당 장면의 텍스트 표시
+            if 'shorts_segments' in st.session_state and i < len(st.session_state['shorts_segments']):
+                scene = st.session_state['shorts_segments'][i]
+                st.markdown(f"**🎬 장면 {i+1}**")
+                st.write(f"시간: {scene['start']:.2f}s - {scene['end']:.2f}s")
+                st.info(f"📝 {scene['scene_description']}")
+            st.audio(st.session_state.uploaded_files['audios'][i])
+        else:
+            uploaded_audio = st.file_uploader(f"{i+1}번 오디오", type=['mp3', 'wav'], key=f"audio_{i}")
+            if uploaded_audio:
+                st.audio(uploaded_audio)
+                # 오디오 임시 저장
+                temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+                temp_audio.write(uploaded_audio.getvalue())
+                st.session_state.uploaded_files['audios'][i] = temp_audio.name
     
     st.divider()
 
@@ -212,9 +249,9 @@ if all_uploaded:
         progress_bar = st.progress(0)
         
         try:
-            for i in range(5):
+            for i in range(10):
                 progress_text.text(f"{i+1}번 비디오 생성 중...")
-                progress_bar.progress((i * 20) + 10)
+                progress_bar.progress((i * 10) + 10)
                 
                 # 오디오 길이 가져오기
                 audio_duration = get_audio_duration(st.session_state.uploaded_files['audios'][i])
@@ -229,7 +266,7 @@ if all_uploaded:
                     duration=audio_duration
                 )
                 
-                progress_bar.progress((i * 20) + 15)
+                progress_bar.progress((i * 10) + 15)
                 
                 # 비디오와 오디오 결합
                 final_video_path = combine_video_audio(
@@ -238,7 +275,7 @@ if all_uploaded:
                 )
                 
                 generated_videos.append(final_video_path)
-                progress_bar.progress((i + 1) * 20)
+                progress_bar.progress((i + 1) * 10)
             
             progress_text.text("최종 비디오 결합 중...")
             final_video = combine_all_videos(generated_videos)
