@@ -527,46 +527,52 @@ def extract_shorts_segments(interesting_part):
     
     # 모든 문장 수집
     for segment in filtered_segments:
-        text = segment['text'].strip()
-        # '.', '?', '!' 를 모두 '.'으로 변환하여 처리
-        text = text.replace('?', '.').replace('!', '.')
-        sentences = [s.strip() for s in text.split('.') if s.strip()]
+        original_text = segment['text'].strip()
+        # 구두점 위치 찾기
+        punctuation_positions = []
+        for i, char in enumerate(original_text):
+            if char in ['.', '?', '!']:
+                punctuation_positions.append(i)
         
-        for sentence in sentences:
-            # 각 문장의 시작/종료 시간 계산
-            sentence_len = len(sentence)
-            text_len = len(text)
-            segment_duration = segment['end'] - segment['start']
-            
-            # 문장의 상대적 위치 계산
-            sentence_pos = text.find(sentence)
-            relative_start = sentence_pos / text_len
-            relative_end = (sentence_pos + sentence_len) / text_len
-            
-            sentence_start = segment['start'] + (segment_duration * relative_start)
-            sentence_end = segment['start'] + (segment_duration * relative_end)
-            
-            # 원래 문장의 구두점 확인
-            original_text = segment['text']
-            if original_text[sentence_pos + sentence_len:].startswith('?'):
-                punctuation = '?'
-            elif original_text[sentence_pos + sentence_len:].startswith('!'):
-                punctuation = '!'
-            else:
-                punctuation = '.'
-            
-            original_sentence = sentence + punctuation
-            
-            all_sentences.append({
-                'scene_description': original_sentence,
-                'start': sentence_start,
-                'end': sentence_end,
-                'segments': [{
-                    'text': original_sentence,
+        # 문장 시작 위치 추적
+        start_pos = 0
+        
+        # 각 구두점 위치에서 문장 추출
+        for end_pos in punctuation_positions:
+            sentence = original_text[start_pos:end_pos + 1].strip()
+            if sentence:
+                # 문장의 시간 계산
+                segment_duration = segment['end'] - segment['start']
+                sentence_start = segment['start'] + (start_pos / len(original_text)) * segment_duration
+                sentence_end = segment['start'] + ((end_pos + 1) / len(original_text)) * segment_duration
+                
+                all_sentences.append({
+                    'scene_description': sentence,
                     'start': sentence_start,
-                    'end': sentence_end
-                }]
-            })
+                    'end': sentence_end,
+                    'segments': [{
+                        'text': sentence,
+                        'start': sentence_start,
+                        'end': sentence_end
+                    }]
+                })
+            start_pos = end_pos + 1
+        
+        # 마지막 문장이 구두점 없이 끝나는 경우
+        if start_pos < len(original_text):
+            remaining = original_text[start_pos:].strip()
+            if remaining:
+                sentence_start = segment['start'] + (start_pos / len(original_text)) * segment_duration
+                all_sentences.append({
+                    'scene_description': remaining + ".",
+                    'start': sentence_start,
+                    'end': segment['end'],
+                    'segments': [{
+                        'text': remaining + ".",
+                        'start': sentence_start,
+                        'end': segment['end']
+                    }]
+                })
     
     # 10개의 문장 선택 (균등한 간격으로)
     if len(all_sentences) >= 10:
