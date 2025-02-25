@@ -83,22 +83,6 @@ if script_file and audio_file:
                 segments = transcribe_audio(audio_path)
                 st.session_state['transcript_segments'] = segments
                 
-                # 결과 표시
-                st.subheader("음성 인식 결과")
-                if segments:
-                    for segment in segments:
-                        start_time = segment.get('start', 0)
-                        end_time = segment.get('end', '')
-                        text = segment.get('text', '')
-                        
-                        time_info = f"{start_time:.2f}s"
-                        if end_time:
-                            time_info += f" - {end_time:.2f}s"
-                        
-                        st.write(f"{time_info}: {text}")
-                else:
-                    st.warning("음성 인식 결과가 없습니다.")
-                
                 # 임시 파일 정리
                 os.unlink(audio_path)
                 
@@ -109,6 +93,20 @@ if script_file and audio_file:
                         os.unlink(audio_path)
                     except:
                         pass
+
+# 음성 인식 결과를 항상 표시
+if 'transcript_segments' in st.session_state:
+    st.subheader("🎙️ 음성 인식 결과")
+    for segment in st.session_state['transcript_segments']:
+        start_time = segment.get('start', 0)
+        end_time = segment.get('end', '')
+        text = segment.get('text', '')
+        
+        time_info = f"{start_time:.2f}s"
+        if end_time:
+            time_info += f" - {end_time:.2f}s"
+        
+        st.write(f"{time_info}: {text}")
 
 # 음성 인식 결과 표시 후...
 if 'transcript_segments' in st.session_state:
