@@ -516,60 +516,87 @@ def extract_interesting_part(segments):
 def extract_shorts_segments(interesting_part):
     """
     문장 단위로 정확히 10개의 세그먼트를 추출
-    각 세그먼트는 정확히 하나의 문장만 포함
+    각 세그먼트는 정확히 하나의 문장만 포함 ('.' 또는 '?' 또는 '!' 로 구분)
     첫 10초 이후의 문장부터 선택
     """
     segments = interesting_part['segments']
-    results = []
+    all_sentences = []
     
     # 10초 이후의 세그먼트부터 시작
     filtered_segments = [seg for seg in segments if seg['start'] >= 10.0]
     
+    # 모든 문장 수집
     for segment in filtered_segments:
-        # 세그먼트의 텍스트를 문장 단위로 분리
         text = segment['text'].strip()
-        sentences = [s.strip() + '.' for s in text.split('.') if s.strip()]
+        # '.', '?', '!' 를 모두 '.'으로 변환하여 처리
+        text = text.replace('?', '.').replace('!', '.')
+        sentences = [s.strip() for s in text.split('.') if s.strip()]
         
         for sentence in sentences:
-            # 문장의 길이를 기준으로 시간 비율 계산
+            # 각 문장의 시작/종료 시간 계산
+            sentence_len = len(sentence)
+            text_len = len(text)
             segment_duration = segment['end'] - segment['start']
-            sentence_ratio = len(sentence) / len(text)
-            sentence_duration = segment_duration * sentence_ratio
             
-            sentence_start = segment['start']
-            sentence_end = sentence_start + sentence_duration
+            # 문장의 상대적 위치 계산
+            sentence_pos = text.find(sentence)
+            relative_start = sentence_pos / text_len
+            relative_end = (sentence_pos + sentence_len) / text_len
             
-            results.append({
-                'scene_description': sentence,
+            sentence_start = segment['start'] + (segment_duration * relative_start)
+            sentence_end = segment['start'] + (segment_duration * relative_end)
+            
+            # 원래 문장의 구두점 확인
+            original_text = segment['text']
+            if original_text[sentence_pos + sentence_len:].startswith('?'):
+                punctuation = '?'
+            elif original_text[sentence_pos + sentence_len:].startswith('!'):
+                punctuation = '!'
+            else:
+                punctuation = '.'
+            
+            original_sentence = sentence + punctuation
+            
+            all_sentences.append({
+                'scene_description': original_sentence,
                 'start': sentence_start,
                 'end': sentence_end,
                 'segments': [{
-                    'text': sentence,
+                    'text': original_sentence,
                     'start': sentence_start,
                     'end': sentence_end
                 }]
             })
     
-    # 결과가 10개보다 적으면 마지막 세그먼트를 복제하여 채움
-    while len(results) < 10:
-        if results:  # 결과가 하나라도 있는 경우
-            results.append(results[-1].copy())
-        else:  # 결과가 하나도 없는 경우
-            # 기본 세그먼트 생성
-            default_segment = {
-                'scene_description': "기본 세그먼트",
+    # 10개의 문장 선택 (균등한 간격으로)
+    if len(all_sentences) >= 10:
+        step = len(all_sentences) / 10
+        indices = [int(i * step) for i in range(10)]
+        results = [all_sentences[i] for i in indices]
+    else:
+        # 문장이 10개 미만인 경우 마지막 문장을 복제
+        results = all_sentences[:]
+        last_sentence = all_sentences[-1].copy() if all_sentences else {
+            'scene_description': "기본 문장.",
+            'start': 0.0,
+            'end': 1.0,
+            'segments': [{
+                'text': "기본 문장.",
                 'start': 0.0,
-                'end': 1.0,
-                'segments': [{
-                    'text': "기본 세그먼트",
-                    'start': 0.0,
-                    'end': 1.0
-                }]
-            }
-            results.append(default_segment)
+                'end': 1.0
+            }]
+        }
+        
+        while len(results) < 10:
+            new_sentence = last_sentence.copy()
+            duration = new_sentence['end'] - new_sentence['start']
+            new_sentence['start'] = results[-1]['end']
+            new_sentence['end'] = new_sentence['start'] + duration
+            new_sentence['segments'][0]['start'] = new_sentence['start']
+            new_sentence['segments'][0]['end'] = new_sentence['end']
+            results.append(new_sentence)
     
-    # 정확히 10개의 세그먼트 반환
-    return results[:10]
+    return results
 
 def extract_audio_segment(audio_path: str, start: float, end: float) -> str:
     """
@@ -583,3 +610,30 @@ def extract_audio_segment(audio_path: str, start: float, end: float) -> str:
         return output_path
     except Exception as e:
         raise Exception(f"오디오 세그먼트 추출 중 오류 발생: {str(e)}")
+
+def generate_midjourney_prompt(scene_description: str) -> str:
+    """
+    Generate Midjourney prompt from scene description
+    """
+    try:
+        prompt = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": """
+                Create a detailed Midjourney prompt in English based on the scene description.
+                Include these elements:
+                - Character details and emotions
+                - Actions or gestures
+                - Background setting
+                - Composition and camera angle
+                - Lighting and mood
+                
+                Format:
+                [character details], [action/expression], [background], [composition], [style], cinematic lighting, 8k, hyperrealistic
+                """},
+                {"role": "user", "content": f"Create a Midjourney prompt for this scene: {scene_description}"}
+            ]
+        )
+        return prompt.choices[0].message.content
+    except Exception as e:
+        return "Error generating prompt"

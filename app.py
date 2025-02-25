@@ -1,5 +1,5 @@
 import streamlit as st
-from tools import _create_video_effect_sync, combine_video_audio, get_audio_duration, transcribe_audio, extract_interesting_part, extract_shorts_segments, extract_audio_segment
+from tools import _create_video_effect_sync, combine_video_audio, get_audio_duration, transcribe_audio, extract_interesting_part, extract_shorts_segments, extract_audio_segment, generate_midjourney_prompt
 import tempfile
 import os
 from dotenv import load_dotenv
@@ -177,48 +177,44 @@ with col2:
         
         # 적용 버튼 추가
         if st.button("숏츠 시퀀스 적용"):
-            # 결과가 10개 미만인 경우를 처리
-            num_results = len(st.session_state['shorts_segments'])
-            if num_results < 10:
-                st.warning(f"추출된 세그먼트가 {num_results}개입니다. 나머지 섹션은 비워둡니다.")
-            
-            # 실제 결과 개수만큼만 반복
-            for i in range(min(num_results, 10)):
-                # 오디오 세그먼트 추출 및 저장
-                audio_segment = extract_audio_segment(
-                    st.session_state['original_audio_path'],
-                    st.session_state['shorts_segments'][i]['start'],
-                    st.session_state['shorts_segments'][i]['end']
-                )
-                st.session_state.uploaded_files['audios'][i] = audio_segment
-            
-            # 나머지 섹션은 None으로 초기화
-            for i in range(num_results, 10):
-                st.session_state.uploaded_files['audios'][i] = None
-            
-            st.success(f"{num_results}개의 숏츠 시퀀스가 적용되었습니다!")
+            with st.spinner("숏츠 시퀀스 적용 중..."):
+                # 결과가 10개 미만인 경우를 처리
+                num_results = len(st.session_state['shorts_segments'])
+                if num_results < 10:
+                    st.warning(f"추출된 세그먼트가 {num_results}개입니다. 나머지 섹션은 비워둡니다.")
+                
+                # 미리 모든 프롬프트 생성
+                prompts = []
+                for segment in st.session_state['shorts_segments']:
+                    prompt = generate_midjourney_prompt(segment['scene_description'])
+                    prompts.append(prompt)
+                st.session_state['midjourney_prompts'] = prompts
+                
+                # 한 번에 모든 오디오 세그먼트 추출
+                for i in range(min(num_results, 10)):
+                    audio_segment = extract_audio_segment(
+                        st.session_state['original_audio_path'],
+                        st.session_state['shorts_segments'][i]['start'],
+                        st.session_state['shorts_segments'][i]['end']
+                    )
+                    st.session_state.uploaded_files['audios'][i] = audio_segment
+                
+                # 나머지 섹션은 None으로 초기화
+                for i in range(num_results, 10):
+                    st.session_state.uploaded_files['audios'][i] = None
+                
+                st.success(f"{num_results}개의 숏츠 시퀀스가 적용되었습니다!")
 
 st.markdown("---")
 
-# 10개의 섹션 생성 (5개에서 10개로 변경)
+# 10개의 섹션 생성
 for i in range(10):
     st.subheader(f"{i+1}번 섹션")
     col1, col2 = st.columns(2)
     
     with col1:
-        # 이미지 업로드
-        uploaded_image = st.file_uploader(f"{i+1}번 이미지", type=['png', 'jpg', 'jpeg'], key=f"image_{i}")
-        if uploaded_image:
-            st.image(uploaded_image, caption=f"{i+1}번 이미지")
-            # 이미지 임시 저장
-            temp_image = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-            temp_image.write(uploaded_image.getvalue())
-            st.session_state.uploaded_files['images'][i] = temp_image.name
-            
-    with col2:
-        # 오디오 업로드 또는 표시 (텍스트 추가)
+        # 오디오 표시 및 장면 설명
         if st.session_state.uploaded_files['audios'][i] is not None:
-            # 숏츠 시퀀스에서 해당 장면의 텍스트 표시
             if 'shorts_segments' in st.session_state and i < len(st.session_state['shorts_segments']):
                 scene = st.session_state['shorts_segments'][i]
                 st.markdown(f"**🎬 장면 {i+1}**")
@@ -229,10 +225,25 @@ for i in range(10):
             uploaded_audio = st.file_uploader(f"{i+1}번 오디오", type=['mp3', 'wav'], key=f"audio_{i}")
             if uploaded_audio:
                 st.audio(uploaded_audio)
-                # 오디오 임시 저장
                 temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
                 temp_audio.write(uploaded_audio.getvalue())
                 st.session_state.uploaded_files['audios'][i] = temp_audio.name
+            
+    with col2:
+        # 이미지 업로드 섹션
+        st.markdown("### 🖼️ 이미지 업로드")
+        
+        # 이미지 생성 프롬프트 표시
+        if 'midjourney_prompts' in st.session_state and i < len(st.session_state['midjourney_prompts']):
+            with st.expander("🎨 Image Generation Prompt", expanded=True):
+                st.code(st.session_state['midjourney_prompts'][i], language='text')
+        
+        uploaded_image = st.file_uploader(f"{i+1}번 이미지", type=['png', 'jpg', 'jpeg'], key=f"image_{i}")
+        if uploaded_image:
+            st.image(uploaded_image, caption=f"{i+1}번 이미지")
+            temp_image = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+            temp_image.write(uploaded_image.getvalue())
+            st.session_state.uploaded_files['images'][i] = temp_image.name
     
     st.divider()
 
