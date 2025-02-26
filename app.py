@@ -257,41 +257,15 @@ if all_uploaded:
     st.markdown("---")
     st.subheader("🎬 최종 비디오 생성")
     
-    # 이전에 생성된 비디오가 있으면 표시
-    if 'final_video' in st.session_state:
-        st.success("최종 비디오가 생성되었습니다!")
-        st.video(st.session_state.final_video)
-        
-        # 다운로드 버튼 (고유 키 추가)
-        with open(st.session_state.final_video, 'rb') as f:
-            st.download_button(
-                label="최종 비디오 다운로드",
-                data=f,
-                file_name="final_video.mp4",
-                mime="video/mp4",
-                key="download_existing_video"  # 고유 키 추가
-            )
-        
-        # 새 비디오 생성 버튼
-        if st.button("새 비디오 생성"):
-            # 기존 비디오 파일 삭제
-            if os.path.exists(st.session_state.final_video):
-                os.remove(st.session_state.final_video)
-            del st.session_state.final_video
-            st.rerun()  # 페이지 새로고침
-    
-    # 최종 비디오가 없을 때만 생성 버튼 표시
-    elif st.button("최종 비디오 생성"):
+    if st.button("최종 비디오 생성"):
         generated_videos = []
         progress_text = st.empty()
         progress_bar = st.progress(0)
         
         try:
-            # 각 비디오당 8%씩 할당 (80%)
-            # 최종 결합에 20% 할당
             for i in range(10):
                 progress_text.text(f"{i+1}번 비디오 생성 중...")
-                progress_bar.progress(i * 8)  # 0, 8, 16, ..., 72
+                progress_bar.progress((i * 10) + 10)
                 
                 # 오디오 길이 가져오기
                 audio_duration = get_audio_duration(st.session_state.uploaded_files['audios'][i])
@@ -299,13 +273,14 @@ if all_uploaded:
                 # 랜덤 효과 선택
                 random_effect = random.choice(effects)
                 
-                # 비디오 효과 생성
+                # 비디오 효과 생성 (오디오 길이에 맞춤)
                 video_path = _create_video_effect_sync(
                     st.session_state.uploaded_files['images'][i],
                     effect_type=random_effect,
-                    duration=audio_duration,
-                    text=st.session_state['shorts_segments'][i]['scene_description']
+                    duration=audio_duration
                 )
+                
+                progress_bar.progress((i * 10) + 15)
                 
                 # 비디오와 오디오 결합
                 final_video_path = combine_video_audio(
@@ -314,34 +289,28 @@ if all_uploaded:
                 )
                 
                 generated_videos.append(final_video_path)
-                progress_bar.progress((i + 1) * 8)  # 8, 16, ..., 80
+                progress_bar.progress((i + 1) * 10)
             
             progress_text.text("최종 비디오 결합 중...")
-            progress_bar.progress(90)  # 최종 결합 시작
-            
             final_video = combine_all_videos(generated_videos)
             
             if final_video:
                 progress_text.text("완료!")
                 progress_bar.progress(100)
                 
-                # 세션 상태에 최종 비디오 저장
-                st.session_state.final_video = final_video
-                
                 st.success("최종 비디오 생성 완료!")
                 st.video(final_video)
                 
-                # 다운로드 버튼 (고유 키 추가)
+                # 다운로드 버튼
                 with open(final_video, 'rb') as f:
                     st.download_button(
                         label="최종 비디오 다운로드",
                         data=f,
                         file_name="final_video.mp4",
-                        mime="video/mp4",
-                        key="download_new_video"  # 고유 키 추가
+                        mime="video/mp4"
                     )
                 
-                # 임시 파일 정리 (최종 비디오 제외)
+                # 임시 파일 정리
                 for video in generated_videos:
                     if os.path.exists(video):
                         os.remove(video)
@@ -351,13 +320,3 @@ if all_uploaded:
             
 else:
     st.info("모든 이미지와 오디오를 업로드한 후 최종 비디오를 생성할 수 있습니다.")
-
-# 페이지를 나가기 전에 임시 파일 정리
-def cleanup_temp_files():
-    if 'final_video' in st.session_state:
-        if os.path.exists(st.session_state.final_video):
-            os.remove(st.session_state.final_video)
-        del st.session_state.final_video
-
-# 페이지가 다시 로드될 때 cleanup 함수 등록
-st.session_state.on_close = cleanup_temp_files
