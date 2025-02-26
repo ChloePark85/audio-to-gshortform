@@ -262,16 +262,26 @@ if all_uploaded:
         st.success("최종 비디오가 생성되었습니다!")
         st.video(st.session_state.final_video)
         
-        # 다운로드 버튼
+        # 다운로드 버튼 (고유 키 추가)
         with open(st.session_state.final_video, 'rb') as f:
             st.download_button(
                 label="최종 비디오 다운로드",
                 data=f,
                 file_name="final_video.mp4",
-                mime="video/mp4"
+                mime="video/mp4",
+                key="download_existing_video"  # 고유 키 추가
             )
+        
+        # 새 비디오 생성 버튼
+        if st.button("새 비디오 생성"):
+            # 기존 비디오 파일 삭제
+            if os.path.exists(st.session_state.final_video):
+                os.remove(st.session_state.final_video)
+            del st.session_state.final_video
+            st.rerun()  # 페이지 새로고침
     
-    if st.button("최종 비디오 생성"):
+    # 최종 비디오가 없을 때만 생성 버튼 표시
+    elif st.button("최종 비디오 생성"):
         generated_videos = []
         progress_text = st.empty()
         progress_bar = st.progress(0)
@@ -289,7 +299,7 @@ if all_uploaded:
                 # 랜덤 효과 선택
                 random_effect = random.choice(effects)
                 
-                # 비디오 효과 생성 (오디오 길이에 맞춤)
+                # 비디오 효과 생성
                 video_path = _create_video_effect_sync(
                     st.session_state.uploaded_files['images'][i],
                     effect_type=random_effect,
@@ -321,13 +331,14 @@ if all_uploaded:
                 st.success("최종 비디오 생성 완료!")
                 st.video(final_video)
                 
-                # 다운로드 버튼
+                # 다운로드 버튼 (고유 키 추가)
                 with open(final_video, 'rb') as f:
                     st.download_button(
                         label="최종 비디오 다운로드",
                         data=f,
                         file_name="final_video.mp4",
-                        mime="video/mp4"
+                        mime="video/mp4",
+                        key="download_new_video"  # 고유 키 추가
                     )
                 
                 # 임시 파일 정리 (최종 비디오 제외)

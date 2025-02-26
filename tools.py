@@ -172,28 +172,31 @@ def get_audio_duration(audio_path: str) -> float:
 def add_text_overlay(frame, text, frame_height, frame_width):
     """
     비디오 프레임에 텍스트를 오버레이합니다.
+    텍스트는 화면 중앙에 표시되며, 그림자 효과로 가독성을 높입니다.
     """
     # 이미지를 PIL Image로 변환
     pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(pil_image)
     
-    # 한글 폰트 설정 (시스템에 설치된 폰트 경로 사용)
+    # 한글 폰트 설정
     try:
-        font = ImageFont.truetype("/System/Library/Fonts/AppleSDGothicNeo.ttc", 40)
+        font = ImageFont.truetype("/System/Library/Fonts/AppleSDGothicNeo.ttc", 60)
     except:
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/nanum/NanumGothic.ttf", 40)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/nanum/NanumGothic.ttf", 60)
         except:
             font = ImageFont.load_default()
     
     # 텍스트 줄바꿈 처리
-    wrapper = textwrap.TextWrapper(width=30)
+    wrapper = textwrap.TextWrapper(width=20)
     text_lines = wrapper.wrap(text)
     
-    # 텍스트 배경 설정
-    line_height = 50
+    # 전체 텍스트 영역의 높이 계산
+    line_height = 75
     total_text_height = len(text_lines) * line_height
-    text_y = frame_height - total_text_height - 50  # 화면 하단에서 50픽셀 위
+    
+    # 텍스트 시작 y 좌표 (화면 중앙)
+    text_y = (frame_height - total_text_height) // 2
     
     for line in text_lines:
         # 텍스트 크기 계산
@@ -203,31 +206,66 @@ def add_text_overlay(frame, text, frame_height, frame_width):
         # 텍스트 중앙 정렬 위치 계산
         x = (frame_width - text_width) // 2
         
-        # 텍스트 배경 그리기
-        padding = 10
-        background_bbox = [
-            x - padding,
-            text_y - padding,
-            x + text_width + padding,
-            text_y + line_height
-        ]
-        draw.rectangle(background_bbox, fill=(0, 0, 0, 180))
+        # 그림자 효과 추가 (여러 방향으로 두꺼운 그림자)
+        shadow_offset = 3
+        shadow_color = (0, 0, 0)
         
-        # 텍스트 그리기
+        # 8방향 그림자로 더 진한 효과 생성
+        for offset_x in [-shadow_offset, 0, shadow_offset]:
+            for offset_y in [-shadow_offset, 0, shadow_offset]:
+                if offset_x == 0 and offset_y == 0:
+                    continue
+                draw.text(
+                    (x + offset_x, text_y + offset_y),
+                    line,
+                    font=font,
+                    fill=shadow_color
+                )
+        
+        # 더 진한 그림자를 위해 한번 더 그리기
+        for offset_x in [-shadow_offset//2, shadow_offset//2]:
+            for offset_y in [-shadow_offset//2, shadow_offset//2]:
+                draw.text(
+                    (x + offset_x, text_y + offset_y),
+                    line,
+                    font=font,
+                    fill=shadow_color
+                )
+        
+        # 메인 텍스트 그리기 (흰색)
         draw.text((x, text_y), line, font=font, fill=(255, 255, 255))
         text_y += line_height
     
-    # PIL Image를 다시 OpenCV 형식으로 변환
     return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
+def add_black_bars_to_square(frame):
+    """
+    1:1 비율의 프레임을 9:16 비율로 변환하고 위아래에 검은색 바를 추가합니다.
+    정사각형 영역을 약간 아래로 이동시켜 배치합니다.
+    """
+    square_size = frame.shape[0]  # 정사각형 크기
+    target_height = int(square_size * 16/9)  # 9:16 비율의 높이
+    
+    # 위아래 바의 전체 높이
+    total_bar_height = target_height - square_size
+    
+    # 위쪽 바를 더 크게, 아래쪽 바를 더 작게 설정하여 정사각형을 아래로 이동
+    top_bar_height = total_bar_height * 0.6  # 60%를 위쪽에
+    bottom_bar_height = total_bar_height * 0.4  # 40%를 아래쪽에
+    
+    # 검은색 바가 포함된 새 프레임 생성
+    new_frame = np.zeros((target_height, square_size, 3), dtype=np.uint8)
+    
+    # 원본 이미지를 아래로 이동하여 배치
+    start_y = int(top_bar_height)
+    new_frame[start_y:start_y+square_size, :] = frame
+    
+    return new_frame
 
 def _create_video_effect_sync(image_path: str, effect_type: str = "zoom_in", duration: float = 5.0, text=""):
     """
     실제 비디오 생성을 수행하는 동기 함수
-    
-    Args:
-        image_path (str): 이미지 파일 경로
-        effect_type (str): 효과 종류
-        duration (float): 비디오 길이(초) - 오디오 길이에 맞춤
+    9:16 비율의 비디오 생성
     """
     # 이미지 로드
     img = cv2.imread(image_path)
@@ -237,16 +275,18 @@ def _create_video_effect_sync(image_path: str, effect_type: str = "zoom_in", dur
     # BGR을 RGB로 변환
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     
-    # 이미지 크기를 2배로 확대
-    height, width = img.shape[:2]
-    new_width = width * 2
-    new_height = height * 2
-    img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
+    # 이미지를 정사각형으로 리사이즈
+    size = 1080  # Instagram 권장 크기
+    img = cv2.resize(img, (size, size), interpolation=cv2.INTER_LANCZOS4)
+    
+    # 9:16 비율의 프레임 크기 계산
+    frame_width = size
+    frame_height = int(size * 16/9)
+    frame_size = (frame_width, frame_height)
     
     # 비디오 설정
     fps = 30
     total_frames = int(duration * fps)
-    frame_size = (new_width, new_height)
     
     # 임시 비디오 파일 생성
     temp_video_path = tempfile.mktemp(suffix='.mp4')
@@ -258,24 +298,26 @@ def _create_video_effect_sync(image_path: str, effect_type: str = "zoom_in", dur
             progress = frame_num / total_frames
             frame = img.copy()
             
+            # 효과 적용
             if effect_type == "zoom_in":
                 scale = 1.0 + (0.5 * progress)
-                center_x, center_y = new_width / 2, new_height / 2
+                center_x, center_y = size / 2, size / 2
                 M = cv2.getRotationMatrix2D((center_x, center_y), 0, scale)
-                frame = cv2.warpAffine(img, M, frame_size)
+                frame = cv2.warpAffine(frame, M, (size, size))
             else:  # zoom_out
-                scale = 1.5 - (0.5 * progress)  # 1.5에서 1.0까지 축소
-            
-            # 이미지 중앙에서 확대/축소
-            center_x, center_y = img.shape[1] / 2, img.shape[0] / 2
-            M = cv2.getRotationMatrix2D((center_x, center_y), 0, scale)
-            frame = cv2.warpAffine(img, M, frame_size)
+                scale = 1.5 - (0.5 * progress)
+                center_x, center_y = size / 2, size / 2
+                M = cv2.getRotationMatrix2D((center_x, center_y), 0, scale)
+                frame = cv2.warpAffine(frame, M, (size, size))
             
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             
             # 텍스트 오버레이 추가
             if text:
-                frame = add_text_overlay(frame, text, new_height, new_width)
+                frame = add_text_overlay(frame, text, size, size)
+            
+            # 9:16 비율로 변환하고 검은색 바 추가
+            frame = add_black_bars_to_square(frame)
             
             out.write(frame)
         
@@ -292,16 +334,15 @@ def _create_video_effect_sync(image_path: str, effect_type: str = "zoom_in", dur
                              strict='experimental')
         ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
         
-        if os.path.exists(temp_video_path):
-            os.remove(temp_video_path)
-            
+        # 임시 파일 정리
+        os.remove(temp_video_path)
+        
         return web_compatible_path
         
     except Exception as e:
-        out.release()
         if os.path.exists(temp_video_path):
             os.remove(temp_video_path)
-        raise e
+        raise Exception(f"비디오 생성 중 오류 발생: {str(e)}")
 
 def create_zoom_effect(image_path: str, effect_type: str = "zoom_in", duration: int = 5) -> str:
     """
