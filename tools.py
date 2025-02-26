@@ -23,8 +23,6 @@ import streamlit as st
 
 load_dotenv()
 
-# FAL API 키 설정
-os.environ['FAL_KEY'] = os.getenv('FAL_KEY')
 
 client = OpenAI()
 
