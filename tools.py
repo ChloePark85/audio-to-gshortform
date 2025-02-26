@@ -540,38 +540,29 @@ def combine_all_videos(video_paths):
 
 def transcribe_audio(audio_path: str) -> list:
     """
-    Whisper API를 사용하여 오디오를 텍스트로 변환하고 타임스탬프를 반환합니다.
-    보다 세밀한 세그먼트 분할을 위한 옵션 추가
+    오디오 파일을 텍스트로 변환합니다.
     """
     try:
+        # Whisper API 호출
         with open(audio_path, "rb") as audio_file:
-            transcription = client.audio.transcriptions.create(
+            transcript = client.audio.transcriptions.create(
                 file=audio_file,
                 model="whisper-1",
-                response_format="verbose_json",
                 language="ko",
-                # 보다 정확한 타임스탬프를 위한 옵션
-                timestamp_granularities=["segment", "word"]
+                response_format="verbose_json"
             )
         
-        # 세그먼트 파싱
+        # 세그먼트 정보 추출 및 포맷팅
         segments = []
-        if hasattr(transcription, 'segments'):
-            for segment in transcription.segments:
-                segments.append({
-                    'text': segment['text'],
-                    'start': float(segment['start']),
-                    'end': float(segment['end']),
-                    'words': segment.get('words', [])  # 단어 단위 타임스탬프가 있다면 저장
-                })
-        else:
+        for segment in transcript.segments:
             segments.append({
-                'text': transcription.text,
-                'start': 0.0,
-                'end': get_audio_duration(audio_path)
+                'text': segment.text,
+                'start': segment.start,
+                'end': segment.end
             })
         
         return segments
+        
     except Exception as e:
         raise Exception(f"음성 인식 중 오류 발생: {str(e)}")
 
