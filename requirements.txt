@@ -1,0 +1,13 @@
+librosa
+numpy
+pydub
+langchain
+openai
+requests
+Pillow
+python-dotenv
+fal-client
+opencv-python-headless
+ffmpeg-python
+whisper
+streamlit
