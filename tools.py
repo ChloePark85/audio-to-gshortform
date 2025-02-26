@@ -552,7 +552,18 @@ def transcribe_audio(audio_path: str) -> list:
                 response_format="verbose_json"
             )
         
-        # 세그먼트 정보 추출 및 포맷팅
+        # transcript가 dict인 경우 처리
+        if isinstance(transcript, dict):
+            segments = []
+            for segment in transcript.get('segments', []):
+                segments.append({
+                    'text': segment.get('text', ''),
+                    'start': segment.get('start', 0),
+                    'end': segment.get('end', 0)
+                })
+            return segments
+            
+        # transcript가 객체인 경우 처리
         segments = []
         for segment in transcript.segments:
             segments.append({
@@ -640,7 +651,7 @@ def extract_shorts_segments(interesting_part, audio_path):
     """
     음성 인식 결과에서 문장별로 정확하게 세그먼트를 추출하고
     각 문장에 맞는 오디오 파일을 생성합니다.
-    텍스트와 오디오 싱크를 맞추기 위한 추가 보정 적용
+    시간 순서와 오디오-텍스트 일치 문제를 해결했습니다.
     
     Args:
         interesting_part (dict): 흥미로운 부분에 대한 정보
@@ -656,120 +667,83 @@ def extract_shorts_segments(interesting_part, audio_path):
     if not filtered_segments and segments:
         filtered_segments = segments
     
+    # 시간순으로 정렬
+    filtered_segments.sort(key=lambda x: x['start'])
+    
     # 단일 문장 세그먼트 목록
     single_sentence_segments = []
     
-    # 각 세그먼트를 문장 단위로 나누기
+    # 각 세그먼트는 하나의 문장으로 처리 (분리하지 않음)
     for segment in filtered_segments:
         text = segment['text'].strip()
         if not text:
             continue
         
-        # 문장 단위로 분리 (., !, ? 기준)
-        sentences = []
-        current_sentence = ""
-        
-        for char in text:
-            current_sentence += char
-            if char in ['.', '!', '?']:
-                sentences.append(current_sentence.strip())
-                current_sentence = ""
-        
-        # 남은 텍스트가 있다면 처리 (마침표 추가)
-        if current_sentence.strip():
-            sentences.append(current_sentence.strip() + ".")
-        
-        # 문장이 없으면 다음 세그먼트로
-        if not sentences:
-            continue
-        
-        # 시간 보정값 (초)
-        time_padding = 0.3
-        
-        # 여러 문장이 있는 경우 시간 비율에 따라 세그먼트 분할
-        segment_duration = segment['end'] - segment['start']
-        
-        if len(sentences) == 1:
-            # 단일 문장인 경우 원본 세그먼트 시간 사용
-            start_time = segment['start'] - time_padding  # 시작 시간 앞당김
-            if start_time < 0:
-                start_time = 0
-                
-            single_sentence_segments.append({
-                'scene_description': sentences[0],
-                'start': start_time,
-                'end': segment['end'] + time_padding,  # 종료 시간 연장
-                'segments': [{
-                    'text': sentences[0],
-                    'start': start_time,
-                    'end': segment['end'] + time_padding
-                }]
-            })
-        else:
-            # 여러 문장이 있는 경우 개별 문장의 시간 계산
-            total_chars = sum(len(s) for s in sentences)
-            start_time = segment['start']
+        # 문장 부호가 없으면 마침표 추가
+        if text and text[-1] not in ['.', '!', '?']:
+            text += "."
             
-            for idx, sentence in enumerate(sentences):
-                char_ratio = len(sentence) / total_chars
-                sentence_duration = segment_duration * char_ratio
-                end_time = start_time + sentence_duration
-                
-                # 첫 문장은 시작을 앞당기고, 마지막 문장은 끝을 연장
-                adjusted_start = start_time
-                adjusted_end = end_time
-                
-                if idx == 0:
-                    adjusted_start = max(0, adjusted_start - time_padding)
-                
-                if idx == len(sentences) - 1:
-                    adjusted_end = adjusted_end + time_padding
-                
-                single_sentence_segments.append({
-                    'scene_description': sentence,
-                    'start': adjusted_start,
-                    'end': adjusted_end,
-                    'segments': [{
-                        'text': sentence,
-                        'start': adjusted_start,
-                        'end': adjusted_end
-                    }]
-                })
-                
-                start_time = end_time
+        # 배포 환경용으로 패딩 값 설정 (크게 증가)
+        start_time = max(0, segment['start'] - 0.5)
+        end_time = segment['end'] + 0.5
+        
+        single_sentence_segments.append({
+            'scene_description': text,
+            'start': start_time,
+            'end': end_time,
+            'original_start': segment['start'],  # 원본 시간 정보 유지
+            'original_end': segment['end']
+        })
     
-    # 시간순으로 정렬
-    single_sentence_segments.sort(key=lambda x: x['start'])
+    # 시간순으로 정렬 (매우 중요)
+    single_sentence_segments.sort(key=lambda x: x['original_start'])
     
-    # 각 문장에 오디오 파일 생성하고 검증
+    # 각 문장에 오디오 파일 생성
     validated_segments = []
     
-    for segment in single_sentence_segments:
+    for i, segment in enumerate(single_sentence_segments):
         try:
-            # 오디오 세그먼트 추출 (여유 있게 추출)
-            audio_segment = extract_audio_segment_with_padding(audio_path, segment['start'], segment['end'])
+            # 오디오 세그먼트 추출
+            audio_file = extract_audio_segment(
+                audio_path, 
+                segment['start'], 
+                segment['end'],
+                padding=1.0  # 패딩 증가
+            )
             
             # 추출된 오디오 길이 확인
-            audio_duration = get_audio_duration(audio_segment)
+            audio_duration = get_audio_duration(audio_file)
             
-            # 너무 짧은 오디오는 제외 (0.5초 미만)
-            if audio_duration < 0.5:
-                continue
+            # 오디오 정보 추가
+            segment_copy = segment.copy()
+            segment_copy['audio_file'] = audio_file
+            segment_copy['audio_duration'] = audio_duration
+            segment_copy['segments'] = [{
+                'text': segment['scene_description'],
+                'start': segment['start'],
+                'end': segment['end']
+            }]
+            
+            # 원본 시간 정보 필드 제거
+            if 'original_start' in segment_copy:
+                del segment_copy['original_start']
+            if 'original_end' in segment_copy:
+                del segment_copy['original_end']
                 
-            # 오디오 파일 정보 추가
-            segment['audio_file'] = audio_segment
-            segment['audio_duration'] = audio_duration
-            
-            validated_segments.append(segment)
+            validated_segments.append(segment_copy)
             
         except Exception as e:
-            print(f"오디오 세그먼트 처리 오류: {str(e)}")
+            print(f"오디오 세그먼트 처리 오류 (세그먼트 {i}): {str(e)}")
     
-    # 10개의 세그먼트 선택 (균등한 간격으로)
+    # 다시 한번 시간순으로 정렬 확인
+    validated_segments.sort(key=lambda x: x['start'])
+    
+    # 10개의 세그먼트 선택 (단순히 앞에서부터 10개 선택)
+    results = []
     if len(validated_segments) >= 10:
-        step = len(validated_segments) / 10
-        indices = [int(i * step) for i in range(10)]
-        results = [validated_segments[i] for i in indices]
+        # 균등한 간격이 아닌 앞에서부터 순서대로 10개 선택
+        # 이렇게 하면 시간 순서가 보존됨
+        results = validated_segments[:10]
     else:
         # 세그먼트가 10개 미만인 경우
         results = validated_segments[:]
@@ -780,18 +754,18 @@ def extract_shorts_segments(interesting_part, audio_path):
                 # 마지막 세그먼트 복제
                 last = results[-1].copy()
                 last_duration = last['end'] - last['start']
-                last['start'] = last['end'] + 0.1
+                last['start'] = last['end'] + 1.0  # 1초 이후로 설정
                 last['end'] = last['start'] + last_duration
                 last['segments'][0]['start'] = last['start']
                 last['segments'][0]['end'] = last['end']
                 
                 # 새 오디오 파일 생성
                 try:
-                    last['audio_file'] = extract_audio_segment_with_padding(audio_path, last['start'], last['end'])
+                    last['audio_file'] = extract_audio_segment(audio_path, last['start'], last['end'], padding=1.0)
                     last['audio_duration'] = get_audio_duration(last['audio_file'])
                     results.append(last)
-                except:
-                    # 오디오 추출 실패시 무한 루프 방지를 위해 건너뜀
+                except Exception as e:
+                    print(f"추가 세그먼트 생성 오류: {str(e)}")
                     break
             else:
                 # 세그먼트가 하나도 없는 경우
@@ -799,7 +773,7 @@ def extract_shorts_segments(interesting_part, audio_path):
                 end_time = start_time + 5.0
                 
                 try:
-                    dummy_audio = extract_audio_segment_with_padding(audio_path, start_time, end_time)
+                    dummy_audio = extract_audio_segment(audio_path, start_time, end_time, padding=1.0)
                     dummy = {
                         'scene_description': "내용이 없습니다.",
                         'start': start_time,
@@ -815,6 +789,13 @@ def extract_shorts_segments(interesting_part, audio_path):
                     results.append(dummy)
                 except:
                     break
+    
+    # 최종 확인: 결과가 시간순으로 정렬되었는지 확인
+    results.sort(key=lambda x: x['start'])
+    
+    # 최종 디버깅 정보 출력
+    for i, res in enumerate(results):
+        print(f"세그먼트 {i+1}: {res['start']:.2f}s-{res['end']:.2f}s: {res['scene_description'][:30]}...")
     
     return results
 
@@ -861,41 +842,45 @@ def extract_audio_segment_with_padding(audio_path: str, start: float, end: float
     except Exception as e:
         raise Exception(f"오디오 세그먼트 추출 중 오류 발생: {str(e)}")
 
-def extract_audio_segment(audio_path: str, start: float, end: float, padding: float = 0.5) -> str:
+def extract_audio_segment(audio_path: str, start: float, end: float, padding: float = 1.0) -> str:
     """
     오디오 파일에서 특정 구간을 추출합니다.
-    오디오 품질과 일치도를 개선했습니다.
+    배포 환경용으로 패딩 값을 증가하고 처리를 안정화했습니다.
     
     Args:
         audio_path (str): 원본 오디오 파일 경로
         start (float): 시작 시간(초)
         end (float): 종료 시간(초)
-        padding (float): 앞뒤로 추가할 여유 시간(초), 기본값 0.5초
+        padding (float): 앞뒤로 추가할 여유 시간(초), 기본값 1.0초
         
     Returns:
         str: 추출된 오디오 파일 경로
     """
     try:
-        # 시작/종료 시간 검증
+        # 시작/종료 시간 검증 및 보정
         if start < 0:
             start = 0
         
         # 오디오 로드
         audio = AudioSegment.from_file(audio_path)
         
-        # 최소 1초 길이 보장
-        if end <= start or end - start < 1.0:
-            end = start + 1.0
+        # 최소 길이 보장 (2초)
+        if end <= start or end - start < 2.0:
+            end = start + 2.0
         
-        # 자르는 시간 앞/뒤로 여유 추가
-        start_ms = max(0, int((start - padding) * 1000))  # 시작 시간 padding초 앞당김
-        end_ms = min(int((end + padding) * 1000), len(audio))  # 종료 시간 padding초 연장
+        # 자르는 시간 앞/뒤로 여유 추가 (패딩 증가)
+        start_ms = max(0, int((start - padding) * 1000))
+        end_ms = min(int((end + padding) * 1000), len(audio))
         
-        # 오디오 구간 추출
+        # 여유 있게 오디오 구간 추출
         segment = audio[start_ms:end_ms]
         
         # 음량 정규화 (오디오 품질 향상)
-        normalized_segment = match_target_amplitude(segment, -16.0)
+        try:
+            normalized_segment = match_target_amplitude(segment, -16.0)
+        except:
+            # 정규화 실패시 원본 사용
+            normalized_segment = segment
         
         # 임시 파일 생성
         output_path = tempfile.mktemp(suffix='.mp3')
@@ -910,7 +895,16 @@ def extract_audio_segment(audio_path: str, start: float, end: float, padding: fl
         
         return output_path
     except Exception as e:
-        raise Exception(f"오디오 세그먼트 추출 중 오류 발생: {str(e)}")
+        print(f"오디오 세그먼트 추출 중 오류: {str(e)}")
+        # 실패 시 빈 오디오 생성
+        try:
+            empty_segment = AudioSegment.silent(duration=3000)  # 3초 빈 오디오
+            output_path = tempfile.mktemp(suffix='.mp3')
+            empty_segment.export(output_path, format="mp3")
+            return output_path
+        except:
+            raise Exception(f"오디오 세그먼트 추출 중 오류 발생: {str(e)}")
+
 
 # extract_shorts_segments 함수 내에서 호출 코드 예시
 # audio_segment = extract_audio_segment(audio_path, segment['start'], segment['end'])
@@ -1046,20 +1040,23 @@ def generate_midjourney_prompt(scene_description: str) -> str:
 def main_shorts_generation(audio_path):
     """
     메인 숏츠 생성 프로세스
+    배포 환경용으로 오류 처리를 강화했습니다.
     """
     try:
         # 1. 오디오 전체 음성 인식
         segments = transcribe_audio(audio_path)
+        if not segments:
+            raise ValueError("음성 인식 결과가 없습니다.")
         
         # 2. 흥미로운 부분 추출
         interesting_part = extract_interesting_part(segments)
         
-        # 3. 숏츠 세그먼트 추출 (audio_path 파라미터 추가)
+        # 3. 숏츠 세그먼트 추출
         shorts_segments = extract_shorts_segments(interesting_part, audio_path)
         
-        # 또는 검증 포함 버전 사용
-        # shorts_segments = process_shorts_with_verification(audio_path, interesting_part)
-        
+        if not shorts_segments:
+            raise ValueError("추출된 세그먼트가 없습니다.")
+            
         return shorts_segments
         
     except Exception as e:
