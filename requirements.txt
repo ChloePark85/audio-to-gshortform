@@ -11,3 +11,4 @@ opencv-python-headless
 ffmpeg-python
 whisper
 streamlit
+ffprobe
