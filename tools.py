@@ -18,6 +18,8 @@ import asyncio
 import ffmpeg
 import whisper
 import json
+import random
+import streamlit as st
 
 load_dotenv()
 
@@ -481,13 +483,18 @@ def transcribe_audio(audio_path: str) -> list:
 def extract_interesting_part(segments):
     """
     2분(120초) 길이의 흥미로운 부분을 추출
+    매번 다른 구간을 선택하기 위해 세션 상태를 활용
     """
     if not segments:
         raise ValueError("세그먼트가 비어있습니다.")
     
-    # 연속된 120초 구간을 찾기
-    best_start = 0
+    # 이전에 선택된 구간들을 세션 상태에서 관리
+    if 'selected_segments_history' not in st.session_state:
+        st.session_state.selected_segments_history = []
+    
+    # 가능한 모든 2분 구간 찾기
     target_duration = 120  # 2분
+    possible_segments = []
     
     for i, segment in enumerate(segments):
         current_start = segment['start']
@@ -502,19 +509,46 @@ def extract_interesting_part(segments):
             else:
                 break
         
-        if current_segments:
-            best_start = i
-            break
+        if current_segments and (current_end - current_start) >= 60:  # 최소 1분 이상
+            segment_info = {
+                'start_idx': i,
+                'segments': current_segments,
+                'duration': current_end - current_start,
+                'text_length': sum(len(seg['text']) for seg in current_segments)
+            }
+            possible_segments.append(segment_info)
     
-    selected_segments = segments[best_start:best_start + len(current_segments)]
+    if not possible_segments:
+        raise ValueError("적절한 길이의 구간을 찾을 수 없습니다.")
     
-    return {
-        'title': "2분 하이라이트",
-        'reason': "핵심 내용이 포함된 2분 구간입니다.",
-        'start': selected_segments[0]['start'],
-        'end': selected_segments[-1]['end'],
-        'segments': selected_segments
+    # 이전에 선택되지 않은 구간 중에서 선택
+    unselected_segments = [
+        seg for seg in possible_segments 
+        if seg['start_idx'] not in st.session_state.selected_segments_history
+    ]
+    
+    if not unselected_segments:
+        # 모든 구간이 선택된 경우 히스토리 초기화
+        st.session_state.selected_segments_history = []
+        unselected_segments = possible_segments
+    
+    # 텍스트 길이가 긴 순서로 정렬하고 상위 3개 중에서 랜덤 선택
+    sorted_segments = sorted(unselected_segments, key=lambda x: x['text_length'], reverse=True)
+    selected = random.choice(sorted_segments[:min(3, len(sorted_segments))])
+    
+    # 선택된 구간 인덱스를 히스토리에 추가
+    st.session_state.selected_segments_history.append(selected['start_idx'])
+    
+    # 결과 생성
+    result = {
+        'title': f"2분 하이라이트 #{len(st.session_state.selected_segments_history)}",
+        'reason': "텍스트가 풍부하고 흥미로운 2분 구간입니다.",
+        'start': selected['segments'][0]['start'],
+        'end': selected['segments'][-1]['end'],
+        'segments': selected['segments']
     }
+    
+    return result
 
 def extract_shorts_segments(interesting_part, audio_path):
     """
