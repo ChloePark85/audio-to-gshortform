@@ -169,7 +169,58 @@ def get_audio_duration(audio_path: str) -> float:
     except Exception as e:
         raise Exception(f"오디오 길이 확인 중 오류 발생: {str(e)}")
 
-def _create_video_effect_sync(image_path: str, effect_type: str = "zoom_in", duration: float = 5.0) -> str:
+def add_text_overlay(frame, text, frame_height, frame_width):
+    """
+    비디오 프레임에 텍스트를 오버레이합니다.
+    """
+    # 이미지를 PIL Image로 변환
+    pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil_image)
+    
+    # 한글 폰트 설정 (시스템에 설치된 폰트 경로 사용)
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/AppleSDGothicNeo.ttc", 40)
+    except:
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/nanum/NanumGothic.ttf", 40)
+        except:
+            font = ImageFont.load_default()
+    
+    # 텍스트 줄바꿈 처리
+    wrapper = textwrap.TextWrapper(width=30)
+    text_lines = wrapper.wrap(text)
+    
+    # 텍스트 배경 설정
+    line_height = 50
+    total_text_height = len(text_lines) * line_height
+    text_y = frame_height - total_text_height - 50  # 화면 하단에서 50픽셀 위
+    
+    for line in text_lines:
+        # 텍스트 크기 계산
+        bbox = draw.textbbox((0, 0), line, font=font)
+        text_width = bbox[2] - bbox[0]
+        
+        # 텍스트 중앙 정렬 위치 계산
+        x = (frame_width - text_width) // 2
+        
+        # 텍스트 배경 그리기
+        padding = 10
+        background_bbox = [
+            x - padding,
+            text_y - padding,
+            x + text_width + padding,
+            text_y + line_height
+        ]
+        draw.rectangle(background_bbox, fill=(0, 0, 0, 180))
+        
+        # 텍스트 그리기
+        draw.text((x, text_y), line, font=font, fill=(255, 255, 255))
+        text_y += line_height
+    
+    # PIL Image를 다시 OpenCV 형식으로 변환
+    return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
+def _create_video_effect_sync(image_path: str, effect_type: str = "zoom_in", duration: float = 5.0, text=""):
     """
     실제 비디오 생성을 수행하는 동기 함수
     
@@ -221,6 +272,11 @@ def _create_video_effect_sync(image_path: str, effect_type: str = "zoom_in", dur
             frame = cv2.warpAffine(img, M, frame_size)
             
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            
+            # 텍스트 오버레이 추가
+            if text:
+                frame = add_text_overlay(frame, text, new_height, new_width)
+            
             out.write(frame)
         
         out.release()
@@ -894,30 +950,68 @@ def process_shorts_audio_segments(audio_path: str, shorts_segments: list) -> lis
 
 def generate_midjourney_prompt(scene_description: str) -> str:
     """
-    Generate Midjourney prompt from scene description
+    Generate Midjourney prompt for Korean webtoon style scenes
+    Maintains consistent character appearance across all scenes
+    Uses 1:1 aspect ratio
     """
     try:
+        # 캐릭터 기본 설정을 세션 상태로 관리
+        if 'character_base_prompt' not in st.session_state:
+            # 첫 실행시 캐릭터 기본 설정 생성
+            character_prompt = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": """
+                    Create a detailed character description for a Korean webtoon.
+                    Include:
+                    - Age and gender
+                    - Facial features
+                    - Hair style and color
+                    - Body type
+                    - Clothing style
+                    
+                    Format your response as a concise prompt string.
+                    """},
+                    {"role": "user", "content": "Create a base character description"}
+                ]
+            )
+            st.session_state.character_base_prompt = character_prompt.choices[0].message.content
+
         prompt = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4",
             messages=[
-                {"role": "system", "content": """
-                Create a detailed Midjourney prompt in English based on the scene description.
-                Include these elements:
-                - Character details and emotions
-                - Actions or gestures
+                {"role": "system", "content": f"""
+                Create a Midjourney prompt for a Korean webtoon style scene.
+                Use this consistent character description for all scenes:
+                {st.session_state.character_base_prompt}
+                
+                Required elements:
+                - Character's emotion and action specific to the scene
                 - Background setting
-                - Composition and camera angle
+                - Camera angle and composition
                 - Lighting and mood
                 
+                Required style elements:
+                - Korean webtoon style, manhwa art
+                - Clean lines and vibrant colors
+                - 1:1 aspect ratio
+                - High detail and quality
+                
                 Format:
-                [character details], [action/expression], [background], [composition], [style], cinematic lighting, 8k, hyperrealistic
+                [character with emotion/action], [background], [composition], Korean webtoon style, manhwa art, clean lines, vibrant colors, square aspect ratio, highly detailed, 8k
                 """},
                 {"role": "user", "content": f"Create a Midjourney prompt for this scene: {scene_description}"}
             ]
         )
-        return prompt.choices[0].message.content
+        
+        # 프롬프트 끝에 비율 강제 지정
+        prompt_text = prompt.choices[0].message.content.strip()
+        if not prompt_text.endswith("--ar 1:1"):
+            prompt_text += " --ar 1:1"
+            
+        return prompt_text
     except Exception as e:
-        return "Error generating prompt"
+        return "Error generating prompt --ar 1:1"
     
 def main_shorts_generation(audio_path):
     """
