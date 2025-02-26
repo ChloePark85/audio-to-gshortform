@@ -151,7 +151,10 @@ with col2:
         else:
             with st.spinner("숏츠용 세그먼트를 분석중..."):
                 try:
-                    results = extract_shorts_segments(st.session_state['interesting_part'])
+                    results = extract_shorts_segments(
+                        st.session_state['interesting_part'],
+                        st.session_state['original_audio_path']
+                    )
                     st.session_state['shorts_segments'] = results
                 except Exception as e:
                     st.error(f"오류 발생: {str(e)}")
