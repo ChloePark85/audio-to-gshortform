@@ -263,9 +263,11 @@ if all_uploaded:
         progress_bar = st.progress(0)
         
         try:
+            # 각 비디오당 8%씩 할당 (80%)
+            # 최종 결합에 20% 할당
             for i in range(10):
                 progress_text.text(f"{i+1}번 비디오 생성 중...")
-                progress_bar.progress((i * 10) + 10)
+                progress_bar.progress(i * 8)  # 0, 8, 16, ..., 72
                 
                 # 오디오 길이 가져오기
                 audio_duration = get_audio_duration(st.session_state.uploaded_files['audios'][i])
@@ -273,14 +275,13 @@ if all_uploaded:
                 # 랜덤 효과 선택
                 random_effect = random.choice(effects)
                 
-                # 비디오 효과 생성 (오디오 길이에 맞춤)
+                # 비디오 효과 생성
                 video_path = _create_video_effect_sync(
                     st.session_state.uploaded_files['images'][i],
                     effect_type=random_effect,
-                    duration=audio_duration
+                    duration=audio_duration,
+                    text=st.session_state['shorts_segments'][i]['scene_description']
                 )
-                
-                progress_bar.progress((i * 10) + 15)
                 
                 # 비디오와 오디오 결합
                 final_video_path = combine_video_audio(
@@ -289,14 +290,16 @@ if all_uploaded:
                 )
                 
                 generated_videos.append(final_video_path)
-                progress_bar.progress((i + 1) * 10)
+                progress_bar.progress(min(80, (i + 1) * 8))  # 최대 80%까지
             
             progress_text.text("최종 비디오 결합 중...")
+            progress_bar.progress(90)  # 최종 결합 시작
+            
             final_video = combine_all_videos(generated_videos)
             
             if final_video:
                 progress_text.text("완료!")
-                progress_bar.progress(100)
+                progress_bar.progress(100)  # 정확히 100%로 설정
                 
                 st.success("최종 비디오 생성 완료!")
                 st.video(final_video)
