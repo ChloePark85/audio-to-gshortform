@@ -7,3 +7,4 @@ pydub
 Pillow
 opencv-python-headless
 numpy
+whisper-openai
